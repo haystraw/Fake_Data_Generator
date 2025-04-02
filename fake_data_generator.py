@@ -9,11 +9,20 @@ import os
 import argparse
 import ast
 from datetime import date, datetime
+from dateutil.relativedelta import relativedelta
 
-version = 20250331
+version = 20250401
 
 default_minimum_rows = 10
 default_maximum_rows = 100
+
+## Just cheating to deal with timezones, when creating datetimes
+## Adjust if setting a date is getting off
+hours_offset = 6
+
+## When specifying a date before or after, what's the default range
+default_years_before = 10
+default_years_after = 10
 
 # Start the JVM with the path to your Oracle JDBC driver
 if not jpype.isJVMStarted():
@@ -33,21 +42,90 @@ fake = Faker()
 
 unique_id_set = {}
 
-
 script_location = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else __file__))
 
 help_message = '''
-Creates fake data within an existing JDBC source.
-    --config_file_name Specify the name of the csv config file to use. Otherwise it will prompt you
+Creates fake data within an existing JDBC source. Modify the top of the script to provide your connection details, 
+    including the JDBC jar location.
+
+    As an input it will take a csv file which defines where you want to create fake data, and what methods to use.
+    This Csv file has the following headers:
+    - Table: Table name to insert into (it assumes the table already exists)
+    - Column: Column for to add data into (it assumes the column within the table already exists)
+    - DataFunction: This can be several different methods:
+        fake: Uses the Python "Faker" library. Examples are:
+            fake.first_name()
+            fake.last_name()
+            fake.date_of_birth(tzinfo=None, minimum_age=18, maximum_age=70)
+            fake.numerify('###-###-####')
+            fake.street_address()
+            fake.city()
+            fake.state_abbr()
+            fake.random_element(elements=('USA', 'Canada', 'UK', 'Australia', 'Germany', 'India'))
+            fake.ssn()
+            fake.random_int(min=10000, max=500000)
+
+        random: This uses the Python random library to randomly generate a number, or other choice. Examples are:
+            random.uniform(2.0, 6.0)
+
+        round: Usually used in conjunction with random to round a number. Examples are:
+            round(random.uniform(2.0, 6.0), 2)
+
+        unique_id: Custom function that will generate a random integer between a min and maximum, but
+                   will also ensure that it is unique from within a Table, column specified. This ensures
+                   that it will not only be unique during the run, but will accomodate existing data.
+                   When using, you specify the name of tha Table and column to check, and the min and max values to use.
+                   Examples are:
+            unique_id('Payments', 'Payment_ID', 1, 9999999)
+            unique_id('Credit_Scores', 'Credit_Score_ID', 1, 9999999)
+
+        existing_id: Custom function that will randomly select an id from a different column. 
+                     Useful for Foreign key inegrety. When using, you specify the name of the Table, Column to pull from.
+                     Examples are:
+            existing_id('Borrowers', 'Borrower_ID')
+            existing_id('Loans', 'Loan_ID')
+
+        based_on_value: Custom function that will create a value based off another value. It will run a query of a table, 
+                        where the "column specified" = "value specified", and return the "actionable column specified", then
+                        it will generate a value greater then, less than, or equal to that value.
+                        Note that you can specify other columns you generated as the "value" if desired.
+                        When using, use specify the Table, Column, Value, operator ("<", ">", or "="), and the actionable column.
+                        This can accomodate number, date/datetime, and string (in the case of "="), if it is a date, specify date=True
+                        Examples are:
+                based_on_value('Loans', 'Loan_ID', Loan_ID, '>', 'loan_amount')
+                    In this example, it will query: select loan_amount from Loans where Loan_ID = <whatever the recently created Loan_ID value was>
+                    and then generate an integer that is greater than that loan_amount
+                based_on_value('Loans', 'Loan_ID', Loan_ID, '=', 'start_date', date=True)
+                    In this example, it will query: select start_date from Loans where Loan_ID = <whatever the recently created Loan_ID value was>
+                    and then generate an date that is equal to that start_date
+
+        generate_realistic_email: Custom function that will create an email, based off a First and Last Name provided. Optionally, you can 
+                                  provide domains to use, otherwise it'll default to using: 'gmail.com', 'yahoo.com', 'hotmail.com', 'example.com'
+                                  The values of First and Last name can be other columns that you've generated
+                                  It will randomly create emails in formats like:
+                                    Scott_Hayes@domain
+                                    Scott.Hayes@domain
+                                    SHayes@domain
+                                    Hayes@domain
+                                    SHayes234@domain
+                                    etc. 
+            generate_realistic_email(First_Name, Last_Name)
+                This will create an email using the previously created fields of "First_Name", and "Last_Name"
+            generate_realistic_email(First_Name, Last_Name, domains=['myemail.com', 'kob.org', 'microsfot.com'])
+                This will create an email using the previously created fields of "First_Name", and "Last_Name"
+                And will only use the specified domains
+
+Optional Command Line arguments
+    --config_file_name Specify the name of the csv config file to use. Otherwise it will prompt you for which csv file to use.
+        Example: --config_file_name="Loan Data (big load).csv"
 
 '''
-
 def to_java_date(py_date):
     """Convert a Python date to a Java SQL Date."""
     if isinstance(py_date, date):
         datetime_obj = datetime.combine(py_date, datetime.min.time())
         epoch = datetime(1970, 1, 1)
-        milliseconds = int((datetime_obj - epoch).total_seconds() * 1000)
+        milliseconds = int((datetime_obj - epoch).total_seconds() * 1000)+(hours_offset*60*60*1000)
         return JavaSqlDate(milliseconds)
     else:
         raise ValueError("Expected a `date` object")
@@ -80,7 +158,43 @@ def unique_id(table_name, id_column_name, min_value, max_value):
     ## print(f"DEBUG unique_id is {this_id}")
     return this_id
         
+def fetch_value_based_on_id(table_name, id_column_name, value_column_name):
+    """Fetch existing primary key IDs with their corresponding values."""
+    print(f"INFO: Fetching {id_column_name}, {value_column_name} from {table_name}")
+    query = f"SELECT {id_column_name}, {value_column_name} FROM {table_name}"
+    cursor.execute(query)
+    # Use a dictionary comprehension to create a dictionary based on the query result
+    result_dict = {row[0]: row[1] for row in cursor.fetchall()}
     
+    return result_dict
+
+def based_on_value(table_name, id_column_name, id_value, operator, value_column_name, date=False):
+    table_column = table_name+"."+id_column_name+"."+value_column_name
+    if table_column not in unique_id_set:
+        unique_id_set[table_column] = fetch_value_based_on_id(table_name, id_column_name, value_column_name)
+    this_set = unique_id_set[table_column]
+    this_value = this_set[id_value]
+    if date:
+        try:
+            this_value = datetime.strptime(this_value, "%Y-%m-%d").date()
+        except:
+            this_value = datetime.strptime(this_value, "%Y-%m-%d %H:%M:%S")
+        date_years_before = this_value - relativedelta(years=default_years_before)
+        date_years_after = this_value + relativedelta(years=default_years_after)
+    if operator in ("lt", "<", "LT", "LessThan", "Less Than"):
+        if date:
+            return fake.date_between_dates(date_start=date_years_before, date_end=this_value)
+        else:
+            return fake.random_int(min=1, max=this_value)
+    elif operator in ("gt", ">", "GT", "GreaterThan", "Greater Than"):
+        if date:
+            return fake.date_between_dates(date_start=this_value, date_end=date_years_after)
+        else:
+            return fake.random_int(min=this_value, max=this_value+1000000)
+    else:
+        return this_value
+       
+
     
 
 def generate_realistic_email(first_name, last_name, domains=['gmail.com', 'yahoo.com', 'hotmail.com', 'example.com']):
@@ -133,7 +247,15 @@ def insert_fake_data(config, table_name, num_rows):
         values = []
         
         # Local dynamically evaluated context
-        local_vars = {"fake": fake, "random": random, "generate_realistic_email": generate_realistic_email, "unique_id": unique_id, "existing_id": existing_id, "round": round}
+        local_vars = {"fake": fake, 
+                      "random": random, 
+                      "generate_realistic_email": generate_realistic_email, 
+                      "unique_id": unique_id, 
+                      "existing_id": existing_id, 
+                      "round": round,
+                      "random": random,
+                      "based_on_value": based_on_value
+                      }
         
         for column in table_columns:
             func_str = config[(table_name, column)]
@@ -141,12 +263,12 @@ def insert_fake_data(config, table_name, num_rows):
                 # Evaluate the function string
                 ## print(f"Evaluating function for {table_name}.{column}: {func_str}")
                 value = eval(func_str, {"__builtins__": None}, local_vars)
-                
-                local_vars[column] = value
-                
+
                 if isinstance(value, date):
                     value = to_java_date(value)
                 values.append(value)
+
+                local_vars[column] = value
                 
             except Exception as e:
                 print(f"Error generating data for {table_name}.{column}: {e}")
@@ -282,6 +404,7 @@ def main():
     parse_parameters()
     
     # Establish JDBC connection
+    print(f"INFO: Connecting to {jdbc_url}")
     connection = jaydebeapi.connect(driver_class, jdbc_url, [username, password])
     connection.jconn.setAutoCommit(False)
     global cursor

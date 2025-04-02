@@ -10,29 +10,32 @@ Borrowers,City,fake.city(),,
 Borrowers,State,fake.state_abbr(),,
 Borrowers,Country,"fake.random_element(elements=('USA', 'Canada', 'UK', 'Australia', 'Germany', 'India'))",,
 Borrowers,SSN,fake.ssn(),,
-Loans,Loan_ID,"unique_id('Loans', 'Loan_ID', 1, 9999999)",1,10
+Loans,Loan_ID,"unique_id('Loans', 'Loan_ID', 1, 9999999)",0,0
 Loans,Borrower_ID,"existing_id('Borrowers', 'Borrower_ID')",,
 Loans,loan_amount,"fake.random_int(min=10000, max=500000)",,
 Loans,loan_term,"fake.random_element(elements=(5, 10, 15, 20, 30))",,
 Loans,interest_rate_type,"fake.random_element(elements=('F', 'V'))",,
 Loans,interest_rate,"round(random.uniform(2.0, 6.0), 2)",,
 Loans,start_date,fake.date_this_century(before_today=True),,
-Loan_applications,Application_ID,"unique_id('Loan_applications', 'Application_ID', 1, 9999999)",1,10
+Loan_applications,Application_ID,"unique_id('Loan_applications', 'Application_ID', 1, 9999999)",0,0
 Loan_applications,Borrower_ID,"existing_id('Borrowers', 'Borrower_ID')",,
 Loan_applications,Application_status,"fake.random_element(elements=('Accepted', 'Rejected', 'In Process'))",,
 Loan_applications,Application_date,fake.date_this_century(before_today=True),,
-Payments,Payment_ID,"unique_id('Payments', 'Payment_ID', 1, 9999999)",1,10
+Payments,Payment_ID,"unique_id('Payments', 'Payment_ID', 1, 9999999)",0,0
 Payments,Loan_ID,"existing_id('Loans', 'Loan_ID')",,
 Payments,Payment_Amount,"fake.random_int(min=100, max=2000)",,
 Payments,Payment_Date,fake.date_this_century(before_today=True),,
 Payments,Payment_Method,"fake.random_element(elements=(""Bank Transfer"", ""Credit Card"", ""Cheque""))",,
 Payments,Payment_Status,"fake.random_element(elements=(""Completed"", ""Pending"", ""Failed""))",,
-Credit_Scores,Credit_Score_ID,"unique_id('Credit_Scores', 'Credit_Score_ID', 1, 9999999)",1,10
+Credit_Scores,Credit_Score_ID,"unique_id('Credit_Scores', 'Credit_Score_ID', 1, 9999999)",0,0
 Credit_Scores,Borrower_ID,"existing_id('Borrowers', 'Borrower_ID')",,
 Credit_Scores,Credit_Score,"fake.random_int(min=350, max=870)",,
 Credit_Scores,Score_Date,fake.date_this_century(before_today=True),,
 Credit_Scores,Rating_agency,"fake.random_element(elements=(""Equifax"", ""Experian"", ""Transunion"", ""Innovis""))",,
-Borrower_Income,Income_ID,"unique_id('Borrower_Income', 'Income_ID', 1, 9999999)",1,10
+Borrower_Income,Income_ID,"unique_id('Borrower_Income', 'Income_ID', 1, 9999999)",0,0
 Borrower_Income,Borrower_ID,"existing_id('Borrowers', 'Borrower_ID')",,
 Borrower_Income,Annual_Income,"fake.random_int(min=35000, max=200000)",,
 Borrower_Income,Income_Date,fake.date_this_century(before_today=True),,
+Loan_Origination,Loan_ID,"existing_id('Loans', 'Loan_ID')",10000,20000
+Loan_Origination,Original_Loan_Amount,"based_on_value('Loans', 'Loan_ID', Loan_ID, '>', 'loan_amount')",,
+Loan_Origination,Original_Loan_Date,"based_on_value('Loans', 'Loan_ID', Loan_ID, '=', 'start_date', date=True)",,
